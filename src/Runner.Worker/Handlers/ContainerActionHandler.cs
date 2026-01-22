@@ -226,6 +226,12 @@ namespace GitHub.Runner.Worker.Handlers
 
             if (systemConnection.Data.TryGetValue("CacheServerUrl", out var cacheUrl) && !string.IsNullOrEmpty(cacheUrl))
             {
+                // Allow CUSTOM_ACTIONS_RESULTS_URL to override the cache server URL
+                if (!string.IsNullOrEmpty(customActionsResultsUrl))
+                {
+                    Trace.Info($"Overriding cache server URL from '{cacheUrl}' to '{customActionsResultsUrl}'");
+                    cacheUrl = customActionsResultsUrl;
+                }
                 Environment["ACTIONS_CACHE_URL"] = cacheUrl;
             }
             if (systemConnection.Data.TryGetValue("PipelinesServiceUrl", out var pipelinesServiceUrl) && !string.IsNullOrEmpty(pipelinesServiceUrl))
