@@ -14,7 +14,7 @@ using Pipelines = GitHub.DistributedTask.Pipelines;
 
 namespace GitHub.Runner.Common.Tests.Listener
 {
-    public sealed class RunnerL0
+    public sealed class RunnerL0 : IDisposable
     {
         private Mock<IConfigurationManager> _configurationManager;
         private Mock<IJobNotification> _jobNotification;
@@ -29,6 +29,7 @@ namespace GitHub.Runner.Common.Tests.Listener
         private Mock<ICredentialManager> _credentialManager;
         private Mock<IActionsRunServer> _actionsRunServer;
         private Mock<IRunServer> _runServer;
+        private readonly string _returnJobResultForHosted;
 
         public RunnerL0()
         {
@@ -45,6 +46,14 @@ namespace GitHub.Runner.Common.Tests.Listener
             _credentialManager = new Mock<ICredentialManager>();
             _actionsRunServer = new Mock<IActionsRunServer>();
             _runServer = new Mock<IRunServer>();
+
+            _returnJobResultForHosted = Environment.GetEnvironmentVariable("ACTIONS_RUNNER_RETURN_JOB_RESULT_FOR_HOSTED");
+            Environment.SetEnvironmentVariable("ACTIONS_RUNNER_RETURN_JOB_RESULT_FOR_HOSTED", null);
+        }
+
+        public void Dispose()
+        {
+            Environment.SetEnvironmentVariable("ACTIONS_RUNNER_RETURN_JOB_RESULT_FOR_HOSTED", _returnJobResultForHosted);
         }
 
         private Pipelines.AgentJobRequestMessage CreateJobRequestMessage(string jobName)
@@ -295,13 +304,13 @@ namespace GitHub.Runner.Common.Tests.Listener
                 _messageListener.Setup(x => x.DeleteMessageAsync(It.IsAny<TaskAgentMessage>()))
                     .Returns(Task.CompletedTask);
 
-                var runOnceJobCompleted = new TaskCompletionSource<bool>();
+                var runOnceJobCompleted = new TaskCompletionSource<TaskResult>();
                 _jobDispatcher.Setup(x => x.RunOnceJobCompleted)
                     .Returns(runOnceJobCompleted);
                 _jobDispatcher.Setup(x => x.Run(It.IsAny<Pipelines.AgentJobRequestMessage>(), It.IsAny<bool>()))
                     .Callback(() =>
                     {
-                        runOnceJobCompleted.TrySetResult(true);
+                        runOnceJobCompleted.TrySetResult(TaskResult.Succeeded);
                     });
                 _jobNotification.Setup(x => x.StartClient(It.IsAny<String>()))
                     .Callback(() =>
@@ -399,13 +408,13 @@ namespace GitHub.Runner.Common.Tests.Listener
                 _messageListener.Setup(x => x.DeleteMessageAsync(It.IsAny<TaskAgentMessage>()))
                     .Returns(Task.CompletedTask);
 
-                var runOnceJobCompleted = new TaskCompletionSource<bool>();
+                var runOnceJobCompleted = new TaskCompletionSource<TaskResult>();
                 _jobDispatcher.Setup(x => x.RunOnceJobCompleted)
                     .Returns(runOnceJobCompleted);
                 _jobDispatcher.Setup(x => x.Run(It.IsAny<Pipelines.AgentJobRequestMessage>(), It.IsAny<bool>()))
                     .Callback(() =>
                     {
-                        runOnceJobCompleted.TrySetResult(true);
+                        runOnceJobCompleted.TrySetResult(TaskResult.Succeeded);
                     });
                 _jobNotification.Setup(x => x.StartClient(It.IsAny<String>()))
                     .Callback(() =>
@@ -733,8 +742,8 @@ namespace GitHub.Runner.Common.Tests.Listener
 
                 _configStore.Setup(x => x.IsServiceConfigured()).Returns(false);
 
-                var completedTask = new TaskCompletionSource<bool>();
-                completedTask.SetResult(true);
+                var completedTask = new TaskCompletionSource<TaskResult>();
+                completedTask.SetResult(TaskResult.Succeeded);
                 _jobDispatcher.Setup(x => x.RunOnceJobCompleted).Returns(completedTask);
 
                 //Act
@@ -834,8 +843,8 @@ namespace GitHub.Runner.Common.Tests.Listener
 
                 _configStore.Setup(x => x.IsServiceConfigured()).Returns(false);
 
-                var completedTask = new TaskCompletionSource<bool>();
-                completedTask.SetResult(true);
+                var completedTask = new TaskCompletionSource<TaskResult>();
+                completedTask.SetResult(TaskResult.Succeeded);
                 _jobDispatcher.Setup(x => x.RunOnceJobCompleted).Returns(completedTask);
 
                 //Act
@@ -954,8 +963,8 @@ namespace GitHub.Runner.Common.Tests.Listener
 
                 _configStore.Setup(x => x.IsServiceConfigured()).Returns(false);
 
-                var completedTask = new TaskCompletionSource<bool>();
-                completedTask.SetResult(true);
+                var completedTask = new TaskCompletionSource<TaskResult>();
+                completedTask.SetResult(TaskResult.Succeeded);
                 _jobDispatcher.Setup(x => x.RunOnceJobCompleted).Returns(completedTask);
 
                 //Act
