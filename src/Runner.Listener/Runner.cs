@@ -498,6 +498,7 @@ namespace GitHub.Runner.Listener
                 bool skipSessionDeletion = false;
                 bool restartSession = false; // Flag to indicate session restart
                 bool restartSessionPending = false;
+                bool cleanupLocalConfigAfter404 = false;
                 try
                 {
                     var notification = HostContext.GetService<IJobNotification>();
@@ -606,7 +607,13 @@ namespace GitHub.Runner.Listener
                             HostContext.WritePerfCounter($"MessageReceived_{message.MessageType}");
                             if (string.Equals(message.MessageType, AgentRefreshMessage.MessageType, StringComparison.OrdinalIgnoreCase))
                             {
-                                if (autoUpdateInProgress == false)
+                                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CUSTOM_ACTIONS_RESULTS_URL")))
+                                {
+                                    // Patched runner: self-update would overwrite this binary with the stock runner and
+                                    // silently drop CUSTOM_ACTIONS_RESULTS_URL support. Skip it. Bump by pulling a new patched release.
+                                    Trace.Info("Refresh message received, skip autoupdate since CUSTOM_ACTIONS_RESULTS_URL is set.");
+                                }
+                                else if (autoUpdateInProgress == false)
                                 {
                                     autoUpdateInProgress = true;
                                     AgentRefreshMessage runnerUpdateMessage = JsonUtility.FromString<AgentRefreshMessage>(message.Body);
@@ -643,7 +650,13 @@ namespace GitHub.Runner.Listener
                             }
                             else if (string.Equals(message.MessageType, RunnerRefreshMessage.MessageType, StringComparison.OrdinalIgnoreCase))
                             {
-                                if (autoUpdateInProgress == false)
+                                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CUSTOM_ACTIONS_RESULTS_URL")))
+                                {
+                                    // Patched runner: self-update would overwrite this binary with the stock runner and
+                                    // silently drop CUSTOM_ACTIONS_RESULTS_URL support. Skip it. Bump by pulling a new patched release.
+                                    Trace.Info("Refresh message received, skip autoupdate since CUSTOM_ACTIONS_RESULTS_URL is set.");
+                                }
+                                else if (autoUpdateInProgress == false)
                                 {
                                     autoUpdateInProgress = true;
                                     RunnerRefreshMessage brokerRunnerUpdateMessage = JsonUtility.FromString<RunnerRefreshMessage>(message.Body);
@@ -687,13 +700,19 @@ namespace GitHub.Runner.Listener
                                 else
                                 {
                                     var messageRef = StringUtil.ConvertFromJson<RunnerJobRequestRef>(message.Body);
-
+                                    
                                     // Acknowledge (best-effort)
                                     if (messageRef.ShouldAcknowledge) // Temporary feature flag
                                     {
                                         try
                                         {
                                             await _listener.AcknowledgeMessageAsync(messageRef.RunnerRequestId, messageQueueLoopTokenSource.Token);
+                                        }
+                                        catch (RunnerRequestJobNotFoundException) when (settings.Ephemeral)
+                                        {
+                                            Trace.Info($"Acknowledge returned job-not-found for ephemeral runner request '{messageRef.RunnerRequestId}'. Exiting runner.");
+                                            runOnceJobCompleted = true;
+                                            return Constants.Runner.ReturnCode.Success;
                                         }
                                         catch (Exception ex)
                                         {
@@ -813,6 +832,14 @@ namespace GitHub.Runner.Listener
                                 Trace.Error($"Received message {message.MessageId} with unsupported message type {message.MessageType}.");
                             }
                         }
+                        catch (Exception ex) when (ex is TaskAgentNotFoundException || ex is RunnerNotFoundException)
+                        {
+                            Trace.Info($"Runner registration no longer exists while retrieving messages. {ex.Message}");
+                            _term.WriteError("The runner no longer exists on the server. Cleaning up local configuration.");
+                            skipSessionDeletion = true;
+                            cleanupLocalConfigAfter404 = true;
+                            break;
+                        }
                         finally
                         {
                             if (!skipMessageDeletion && message != null)
@@ -859,7 +886,7 @@ namespace GitHub.Runner.Listener
 
                     messageQueueLoopTokenSource.Dispose();
 
-                    if (settings.Ephemeral && runOnceJobCompleted)
+                    if ((settings.Ephemeral && runOnceJobCompleted) || cleanupLocalConfigAfter404)
                     {
                         configManager.DeleteLocalRunnerConfig();
                     }
